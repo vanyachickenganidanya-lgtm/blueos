@@ -34,7 +34,9 @@ _start:
     andb $0xfe, %al
     outb %al, $0x92
 
-    /* Ask VBE for 1024x768x32 linear-framebuffer mode 0x118. */
+    /* Initialize BootInfo, then ask for VBE 1024x768x32 LFB mode 0x118. */
+    movl $0x534f554c, BOOT_INFO       /* "LUOS" low half of magic */
+    movl $0x45554c42, BOOT_INFO + 4   /* "BLUE" high half */
     xorw %ax, %ax
     movw %ax, %es
     movw $VBE_INFO, %di
@@ -51,8 +53,6 @@ _start:
     jne no_graphics
 
     /* BootInfo layout is shared with src/arch/x86_64.rs. */
-    movl $0x534f554c, BOOT_INFO       /* "LUOS" low half of magic */
-    movl $0x45554c42, BOOT_INFO + 4   /* "BLUE" high half */
     movl VBE_INFO + 40, %eax
     movl %eax, BOOT_INFO + 8
     movl $0, BOOT_INFO + 12

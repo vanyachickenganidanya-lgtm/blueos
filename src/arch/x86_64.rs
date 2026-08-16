@@ -323,6 +323,7 @@ impl E1000 {
             core::hint::spin_loop();
         }
         write_volatile(register(0x00d8), 0xffff_ffff); // IMC
+        write_volatile(register(0x0000), read_volatile(register(0x0000)) | (1 << 6)); // link up
 
         let ral = read_volatile(register(0x5400));
         let rah = read_volatile(register(0x5404));
