@@ -36,8 +36,9 @@ pub unsafe extern "C" fn _start(boot_info: *const BootInfo) -> ! {
     let info = &*boot_info;
     let framebuffer = if info.magic == BOOT_MAGIC
         && info.framebuffer != 0
-        && info.bits_per_pixel == 32
+        && (info.bits_per_pixel == 24 || info.bits_per_pixel == 32)
     {
+        debug_write("VBE framebuffer ready\n");
         Framebuffer::new(
             info.framebuffer as usize,
             info.width as usize,

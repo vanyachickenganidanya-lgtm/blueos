@@ -4,7 +4,7 @@ BlueOS — маленькая учебная ОС, написанная **с н�
 
 | Платформа | Загрузка | Графика | Сеть | Ввод |
 |---|---|---|---|---|
-| x86_64 BIOS | собственные stage1/stage2 на GNU Assembly, long mode | VESA VBE 0x118, linear framebuffer 1024×768×32 | Intel e1000 + PCI | PS/2-клавиатура |
+| x86_64 BIOS | собственные stage1/stage2 на GNU Assembly, long mode | VESA VBE 0x118, linear framebuffer 1024×768×24 | Intel e1000 + PCI | PS/2-клавиатура |
 | RISC-V 64 `virt` | OpenSBI + точка входа на RISC-V Assembly | virtio-gpu, framebuffer 800×600×32 | virtio-net MMIO | UART/serial |
 
 В ядро также встроены:

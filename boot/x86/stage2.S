@@ -34,7 +34,7 @@ _start:
     andb $0xfe, %al
     outb %al, $0x92
 
-    /* Initialize BootInfo, then ask for VBE 1024x768x32 LFB mode 0x118. */
+    /* Initialize BootInfo, then ask for VBE 1024x768x24 LFB mode 0x118. */
     movl $0x534f554c, BOOT_INFO       /* "LUOS" low half of magic */
     movl $0x45554c42, BOOT_INFO + 4   /* "BLUE" high half */
     xorw %ax, %ax

@@ -8,7 +8,11 @@ pub fn banner(ui: &mut Ui, architecture: &str, nic_found: bool) {
     ui.write("BlueOS 0.1 - Rust + assembly kernel\n");
     ui.write("Architecture: ");
     ui.write(architecture);
-    ui.write("\nGraphics framebuffer: ready\n");
+    if ui.framebuffer.available() {
+        ui.write("\nGraphics framebuffer: ready\n");
+    } else {
+        ui.write("\nGraphics framebuffer: unavailable (serial only)\n");
+    }
     ui.write("Lua compiler/VM: ready\n");
     if nic_found {
         ui.write("Ethernet driver: ready (QEMU user network)\n");

@@ -47,7 +47,10 @@ impl Framebuffer {
     }
 
     pub fn available(&self) -> bool {
-        !self.address.is_null() && self.bpp == 32 && self.width > 160 && self.height > 120
+        !self.address.is_null()
+            && (self.bpp == 24 || self.bpp == 32)
+            && self.width > 160
+            && self.height > 120
     }
 
     #[inline]
@@ -56,7 +59,15 @@ impl Framebuffer {
             return;
         }
         unsafe {
-            write_volatile(self.address.add(y * self.pitch + x * 4) as *mut u32, color);
+            let pixel = self.address.add(y * self.pitch + x * (self.bpp / 8));
+            if self.bpp == 32 {
+                write_volatile(pixel as *mut u32, color);
+            } else {
+                // VBE mode 0x118 is packed BGR888: one byte per color channel.
+                write_volatile(pixel, color as u8);
+                write_volatile(pixel.add(1), (color >> 8) as u8);
+                write_volatile(pixel.add(2), (color >> 16) as u8);
+            }
         }
     }
 
