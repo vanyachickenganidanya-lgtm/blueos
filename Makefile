@@ -2,20 +2,23 @@ SHELL := /bin/bash
 
 X86_TARGET := x86_64-unknown-none
 RISCV_TARGET := riscv64imac-unknown-none-elf
+UEFI_TARGET := x86_64-unknown-uefi
 PROFILE := release
 CARGO ?= $(shell command -v cargo 2>/dev/null || printf '%s' '$(HOME)/.cargo/bin/cargo')
 OUT := build
 IMAGES := images
 STAGE2_SECTORS := 16
 
-.PHONY: all x86_64 riscv64 clean run-x86_64 run-riscv64 check tools
+.PHONY: all x86_64 riscv64 uefi-app clean run-x86_64 run-riscv64 run-uefi check tools
 
 all: x86_64 riscv64
 
 check: all
-	@test "$$(stat -c%s $(IMAGES)/blueos-x86_64.img)" -ge 1024
+	@test "$$(stat -c%s $(IMAGES)/blueos-x86_64.img)" -eq 67108864
+	@test "$$(od -An -tx1 -j510 -N2 $(IMAGES)/blueos-x86_64.img | tr -d ' \n')" = 55aa
+	@objdump -p $(OUT)/uefi/BOOTX64.EFI | grep -qi 'EFI application'
 	@readelf -h $(IMAGES)/blueos-riscv64.elf | grep -q 'RISC-V'
-	@echo "BlueOS images passed structural checks."
+	@echo "BlueOS BIOS/UEFI and RISC-V images passed structural checks."
 
 tools:
 	@command -v $(CARGO) >/dev/null || { echo "cargo is missing; run scripts/install-toolchain.sh"; exit 1; }
@@ -23,9 +26,9 @@ tools:
 	@command -v ld >/dev/null
 	@command -v objcopy >/dev/null
 
-x86_64: tools
+x86_64: tools uefi-app
 	@mkdir -p $(OUT)/x86 $(IMAGES)
-	./scripts/cargo-build.sh $(CARGO) build --$(PROFILE) --target $(X86_TARGET)
+	./scripts/cargo-build.sh $(CARGO) build --$(PROFILE) --target $(X86_TARGET) --bin blueos
 	objcopy -O binary target/$(X86_TARGET)/$(PROFILE)/blueos $(OUT)/x86/kernel.bin
 	@kernel_size=$$(stat -c%s $(OUT)/x86/kernel.bin); \
 	 kernel_sectors=$$(( (kernel_size + 511) / 512 )); \
@@ -44,11 +47,20 @@ x86_64: tools
 	@test "$$(stat -c%s $(OUT)/x86/stage1.bin)" -eq 512
 	cat $(OUT)/x86/stage1.bin $(OUT)/x86/stage2.padded $(OUT)/x86/kernel.padded > $(IMAGES)/blueos-x86_64.img
 	cp target/$(X86_TARGET)/$(PROFILE)/blueos $(IMAGES)/blueos-x86_64.elf
-	@echo "Built $(IMAGES)/blueos-x86_64.img"
+	./scripts/make-hybrid-image.py $(IMAGES)/blueos-x86_64.img $(OUT)/uefi/BOOTX64.EFI
+	@echo "Built hybrid BIOS/UEFI $(IMAGES)/blueos-x86_64.img"
+
+uefi-app: tools
+	@mkdir -p $(OUT)/uefi $(IMAGES)
+	@command -v rustup >/dev/null || { echo "rustup is required for the UEFI target"; exit 1; }
+	rustup target add $(UEFI_TARGET)
+	./scripts/cargo-build.sh $(CARGO) build --$(PROFILE) --target $(UEFI_TARGET) --bin blueos-uefi
+	cp target/$(UEFI_TARGET)/$(PROFILE)/blueos-uefi.efi $(OUT)/uefi/BOOTX64.EFI
+	cp $(OUT)/uefi/BOOTX64.EFI $(IMAGES)/blueos-BOOTX64.EFI
 
 riscv64: tools
 	@mkdir -p $(OUT)/riscv64 $(IMAGES)
-	./scripts/cargo-build.sh $(CARGO) build --$(PROFILE) --target $(RISCV_TARGET)
+	./scripts/cargo-build.sh $(CARGO) build --$(PROFILE) --target $(RISCV_TARGET) --bin blueos
 	cp target/$(RISCV_TARGET)/$(PROFILE)/blueos $(IMAGES)/blueos-riscv64.elf
 	@echo "Built $(IMAGES)/blueos-riscv64.elf (OpenSBI/QEMU kernel image)"
 
@@ -58,5 +70,8 @@ run-x86_64: x86_64
 run-riscv64: riscv64
 	./scripts/run-riscv64.sh
 
+run-uefi: x86_64
+	./scripts/run-uefi.sh
+
 clean:
-	rm -rf $(OUT) target $(IMAGES)/*.img $(IMAGES)/*.elf
+	rm -rf $(OUT) target $(IMAGES)/*.img $(IMAGES)/*.elf $(IMAGES)/*.EFI

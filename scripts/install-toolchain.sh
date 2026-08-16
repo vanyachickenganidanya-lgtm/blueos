@@ -10,8 +10,8 @@ fi
 
 rustup toolchain install stable --profile minimal
 rustup default stable
-rustup target add x86_64-unknown-none riscv64imac-unknown-none-elf
+rustup target add x86_64-unknown-none riscv64imac-unknown-none-elf x86_64-unknown-uefi
 
-echo "Rust bare-metal toolchain is ready."
+echo "Rust bare-metal and UEFI toolchains are ready."
 echo "If cargo is not yet on PATH, run: source \"${CARGO_HOME:-$HOME/.cargo}/env\""
 echo "Then build with: make all"

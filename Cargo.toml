@@ -11,6 +11,12 @@ path = "src/main.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "blueos-uefi"
+path = "src/bin/blueos_uefi.rs"
+test = false
+bench = false
+
 [profile.dev]
 panic = "abort"
 opt-level = 1

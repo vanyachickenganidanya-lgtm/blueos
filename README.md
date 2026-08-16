@@ -4,18 +4,20 @@ BlueOS — маленькая учебная ОС, написанная **с н�
 
 | Платформа | Загрузка | Графика | Сеть | Ввод |
 |---|---|---|---|---|
-| x86_64 BIOS | собственные stage1/stage2 на GNU Assembly, long mode | VESA VBE 0x118, linear framebuffer 1024×768×24 | Intel e1000 + PCI | PS/2-клавиатура |
+| x86_64 UEFI | нативное Rust UEFI-приложение `BOOTX64.EFI` | GOP 32-bit framebuffer | в разработке | Simple Text Input + Simple Pointer |
+| x86_64 Legacy BIOS | собственные stage1/stage2 на GNU Assembly, long mode | VESA VBE 0x118, linear framebuffer 1024×768×24 | Intel e1000 + PCI | PS/2-клавиатура и мышь |
 | RISC-V 64 `virt` | OpenSBI + точка входа на RISC-V Assembly | virtio-gpu, framebuffer 800×600×32 | virtio-net MMIO | UART/serial |
 
 В ядро также встроены:
 
-- оконно-подобный графический экран и framebuffer-терминал;
+- собственный Plasma-подобный рабочий стол: обои, панель, launcher, переключение приложений, перемещаемые мышью окна, часы, терминал, файлы, настройки и установщик (это не код KDE/Qt);
+- UEFI GUI-установщик с обязательным выбором диска, фразой подтверждения `INSTALL ERASE`, прогрессом, flush и полным read-back сравнением;
 - allocation-free компилятор Lua-подобного подмножества в байткод и стековая VM;
-- Ethernet, ARP, IPv4, ICMP echo, UDP и DNS-клиент;
-- интерактивная командная строка (`HELP`, `INFO`, `CLEAR`, `LUA`, `NET`, `DNS`);
+- Ethernet, ARP, IPv4, ICMP echo, UDP и DNS-клиент в bare-metal ядрах;
+- интерактивная командная строка (`HELP`, `INFO`, `CLEAR`, `LUA`, `NET`, `DNS`, `FILES`, `SETTINGS`, `INSTALL`);
 - serial-лог для диагностики обеих архитектур.
 
-> Это самостоятельное минимальное ядро/MVP, а не замена Linux. Lua-компилятор поддерживает полезное встроенное подмножество (`local`, числа, строки, арифметику, переменные, `print`, `return`), но не заявляет совместимость со всем Lua 5.x. Сетевые драйверы рассчитаны на эмулируемые e1000/virtio устройства QEMU; USB, Wi-Fi, TLS, TCP и драйверы произвольного реального оборудования пока отсутствуют.
+> Это самостоятельное минимальное ядро/MVP, а не замена Linux. Lua-компилятор поддерживает полезное встроенное подмножество (`local`, числа, строки, арифметику, переменные, `print`, `return`), но не заявляет совместимость со всем Lua 5.x. GOP/VBE позволяют загрузить графику на многих AMD64 ПК, однако native xHCI/AHCI/NVMe, Wi-Fi, Radeon acceleration, TLS/TCP и универсальные драйверы реального оборудования ещё не готовы. Установщик работает через UEFI Block I/O и намеренно отказывается писать, если не может отличить съёмный источник от целого внутреннего диска.
 
 ## Быстрый старт
 
@@ -30,7 +32,7 @@ BlueOS — маленькая учебная ОС, написанная **с н�
 Для запуска установите QEMU (Debian/Ubuntu):
 
 ```bash
-sudo apt install qemu-system-x86 qemu-system-misc
+sudo apt install qemu-system-x86 qemu-system-misc ovmf
 ```
 
 ### 2. Сборка обоих образов
@@ -42,9 +44,10 @@ make all
 Результат:
 
 ```text
-images/blueos-x86_64.img   загрузочный raw BIOS disk image
-images/blueos-x86_64.elf   ELF с символами для GDB
-images/blueos-riscv64.elf  загружаемый OpenSBI/QEMU RISC-V image
+images/blueos-x86_64.img    hybrid raw image: Legacy BIOS + FAT16 ESP для UEFI
+images/blueos-BOOTX64.EFI   отдельное UEFI-приложение для диагностики
+images/blueos-x86_64.elf    ELF Legacy BIOS-ядра с символами для GDB
+images/blueos-riscv64.elf   загружаемый OpenSBI/QEMU RISC-V image
 ```
 
 Структурная проверка обоих файлов:
@@ -79,7 +82,28 @@ qemu-system-x86_64 \
 
 Команды вводятся в графическом окне QEMU через PS/2-клавиатуру. Serial-лог остаётся в терминале.
 
-### 4. Запуск RISC-V 64
+### 4. Запуск x86_64 UEFI
+
+После установки OVMF тот же hybrid-образ загружается как UEFI-диск:
+
+```bash
+make run-uefi
+```
+
+Скрипт ищет стандартные `OVMF_CODE*.fd`/`OVMF_VARS*.fd`; нестандартные пути можно передать через `OVMF_CODE` и `OVMF_VARS`. Горячие клавиши UEFI workspace: `F1` launcher, `F2` terminal, `F3` files, `F4` settings, `F8` installer.
+
+Для физического компьютера запишите **весь** `images/blueos-x86_64.img` на USB через Rufus в DD mode или аналогичный raw-image writer. Отключать Secure Boot обязательно: BlueOS EFI-файл пока не подписан. Рекомендуется сначала отключить все диски с ценными данными и проверить live desktop без запуска установки.
+
+Установщик никогда не начинает запись автоматически:
+
+1. `INSTALL` или `F8` показывает только целые writable non-removable UEFI Block I/O диски;
+2. `INSTALL SELECT N` явно выбирает один из показанных дисков;
+3. `INSTALL ERASE` — отдельная разрушительная фраза подтверждения;
+4. после записи выполняются firmware flush и полное поблочное сравнение первых 64 MiB источника и цели.
+
+Если removable live USB или безопасная цель не распознаны, установщик остаётся read-only. Текущий прототип копирует 64-MiB hybrid image и не расширяет раздел на оставшееся место диска.
+
+### 5. Запуск RISC-V 64
 
 ```bash
 ./scripts/run-riscv64.sh
@@ -113,6 +137,7 @@ return 0
 
 Полезные команды:
 
+- `DESKTOP`, `FILES`, `SETTINGS`, `INSTALL` — переключить графический workspace;
 - `LUA` — повторно скомпилировать исходник и запустить байткод;
 - `NET` — показать IP, ARP-состояние и счётчики пакетов;
 - `DNS` — разрешить `example.com` через виртуальный DNS QEMU;
@@ -124,15 +149,18 @@ return 0
 ## Как устроено
 
 ```text
-boot/x86/                 BIOS sector, VBE loader, protected/long mode
-linker/                   linker scripts для физической раскладки ядер
-src/arch/x86_64.rs        ports, serial, PS/2, PCI и e1000
-src/arch/riscv64.rs       RISC-V entry/runtime и UART
+boot/x86/                  BIOS sector, VBE loader, protected/long mode
+linker/                    linker scripts для физической раскладки ядер
+src/bin/blueos_uefi.rs     UEFI live workspace и guarded Block I/O installer
+src/uefi.rs                dependency-free UEFI ABI и GUID протоколов
+src/arch/uefi.rs           GOP/console firmware adapter
+src/arch/x86_64.rs         ports, serial, PS/2, PCI и e1000
+src/arch/riscv64.rs        RISC-V entry/runtime и UART
 src/arch/riscv64/virtio.rs virtio MMIO queues, GPU и network
-src/framebuffer.rs        32-bit BGRX renderer и UI
-src/lua.rs                lexer, compiler, bytecode и VM без heap
-src/net.rs                ARP/IPv4/ICMP/UDP/DNS
-scripts/                   установка toolchain и команды QEMU
+src/framebuffer.rs         BGR/RGB renderer и custom Plasma-like UI
+src/lua.rs                 lexer, compiler, bytecode и VM без heap
+src/net.rs                 ARP/IPv4/ICMP/UDP/DNS
+scripts/                    toolchain, hybrid FAT image builder и QEMU
 ```
 
 ### x86_64 boot flow
@@ -141,6 +169,10 @@ scripts/                   установка toolchain и команды QEMU
 2. Stage2 включает A20, задаёт VESA VBE linear framebuffer и загружает Rust kernel.
 3. Ассемблер создаёт GDT и 4-уровневые page tables, identity-map первых 4 GiB huge pages.
 4. Процессор переключается в long mode и передаёт `BootInfo` в Rust `_start`.
+
+### x86_64 UEFI boot flow
+
+Hybrid MBR сохраняет BIOS-код в секторе 0 и одновременно описывает ESP type `0xEF`, начинающийся с LBA 2048. В FAT16-разделе лежит стандартный fallback path `EFI/BOOT/BOOTX64.EFI`. Rust UEFI-приложение выбирает доступный GOP mode, учитывает RGB/BGR layout, оставляет Boot Services активными для keyboard и Block I/O и запускает тот же framebuffer workspace. Secure Boot пока не поддержан.
 
 ### RISC-V boot flow
 

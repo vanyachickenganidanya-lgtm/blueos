@@ -30,7 +30,20 @@ pub fn execute<N: Nic>(
 ) {
     let command = command.trim();
     if command.eq_ignore_ascii_case("help") {
-        ui.write("HELP  INFO  CLEAR  LUA  NET  DNS\n");
+        ui.write("DESKTOP  FILES  SETTINGS  INSTALL  LUA  NET  DNS  INFO  CLEAR\n");
+    } else if command.eq_ignore_ascii_case("desktop") {
+        ui.open_launcher();
+        return;
+    } else if command.eq_ignore_ascii_case("files") {
+        ui.open_files();
+        return;
+    } else if command.eq_ignore_ascii_case("settings") {
+        ui.open_settings();
+        return;
+    } else if command.eq_ignore_ascii_case("install") {
+        ui.open_installer();
+        ui.write("Boot the UEFI live image to select a physical destination.\n> ");
+        return;
     } else if command.eq_ignore_ascii_case("info") {
         ui.write("BlueOS kernel on ");
         ui.write(architecture);

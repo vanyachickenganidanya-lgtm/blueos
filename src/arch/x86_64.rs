@@ -2,7 +2,7 @@ use core::{arch::asm, ptr::{read_volatile, write_volatile}};
 
 use crate::{
     app,
-    framebuffer::{Framebuffer, Ui},
+    framebuffer::{Framebuffer, Ui, UiAction},
     net::{NetworkStack, Nic},
     shell::{FeedResult, Shell},
 };
@@ -64,9 +64,39 @@ pub unsafe extern "C" fn _start(boot_info: *const BootInfo) -> ! {
     ui.write("> ");
 
     let mut keyboard = Keyboard::new();
+    let mut mouse = Mouse::new(ui.framebuffer.width, ui.framebuffer.height);
+    if mouse.enabled {
+        ui.draw_pointer(mouse.x, mouse.y);
+    }
     let mut shell = Shell::new();
+    let mut dragging = false;
+    let mut clock_delay = 0usize;
+    let mut last_second = 0xffu8;
     loop {
+        if clock_delay == 0 {
+            clock_delay = 100_000;
+            if let Some((hour, minute, second)) = rtc_time() {
+                if second != last_second {
+                    last_second = second;
+                    ui.draw_clock(hour, minute, second);
+                }
+            }
+        } else {
+            clock_delay -= 1;
+        }
         if let Some(byte) = keyboard.poll() {
+            let action = match byte {
+                0xf1 => UiAction::Launcher,
+                0xf2 => UiAction::Terminal,
+                0xf3 => UiAction::Files,
+                0xf4 => UiAction::Settings,
+                0xf8 => UiAction::Installer,
+                _ => UiAction::None,
+            };
+            if action != UiAction::None {
+                open_ui_action(action, &mut ui, &mut shell);
+                continue;
+            }
             match shell.feed(byte) {
                 FeedResult::Echo(byte) => {
                     let text = [byte];
@@ -81,10 +111,28 @@ pub unsafe extern "C" fn _start(boot_info: *const BootInfo) -> ! {
                 FeedResult::Ignored => {}
             }
         }
+        if let Some(event) = mouse.poll() {
+            if event.left && !event.was_left {
+                if ui.title_bar_contains(event.x, event.y) {
+                    dragging = true;
+                } else {
+                    open_ui_action(ui.click(event.x, event.y), &mut ui, &mut shell);
+                }
+            }
+            if event.left && dragging && (event.dx != 0 || event.dy != 0) {
+                ui.move_window(event.dx, event.dy);
+            }
+            if !event.left {
+                dragging = false;
+            }
+        }
         if let Some((nic, stack)) = &mut network {
             if let Some(event) = stack.poll(nic) {
                 app::show_network_event(&mut ui, event);
             }
+        }
+        if mouse.enabled {
+            ui.draw_pointer(mouse.x, mouse.y);
         }
         idle();
     }
@@ -171,7 +219,8 @@ impl Keyboard {
     }
 
     fn poll(&mut self) -> Option<u8> {
-        if unsafe { in8(0x64) } & 1 == 0 {
+        let status = unsafe { in8(0x64) };
+        if status & 1 == 0 || status & 0x20 != 0 {
             return None;
         }
         let scan = unsafe { in8(0x60) };
@@ -192,6 +241,11 @@ impl Keyboard {
 
 fn scan_code(code: u8, shift: bool) -> Option<u8> {
     let normal = match code {
+        0x3b => 0xf1,
+        0x3c => 0xf2,
+        0x3d => 0xf3,
+        0x3e => 0xf4,
+        0x42 => 0xf8,
         0x02..=0x0b => b"1234567890"[(code - 0x02) as usize],
         0x10..=0x19 => b"qwertyuiop"[(code - 0x10) as usize],
         0x1e..=0x26 => b"asdfghjkl"[(code - 0x1e) as usize],
@@ -223,6 +277,200 @@ fn scan_code(code: u8, shift: bool) -> Option<u8> {
         b'\'' => b'"', b',' => b'<', b'.' => b'>', b'/' => b'?', b'\\' => b'|',
         other => other,
     })
+}
+
+fn open_ui_action(action: UiAction, ui: &mut Ui, shell: &mut Shell) {
+    match action {
+        UiAction::Launcher => ui.open_launcher(),
+        UiAction::Terminal => {
+            ui.open_window("KONSOLE");
+            ui.write("> ");
+        }
+        UiAction::Files => ui.open_files(),
+        UiAction::Settings => ui.open_settings(),
+        UiAction::Installer => {
+            ui.open_installer();
+            ui.write("Physical disk writes are enabled only in the UEFI live workspace.\n> ");
+        }
+        UiAction::None => return,
+    }
+    shell.reset();
+}
+
+struct MouseEvent {
+    x: usize,
+    y: usize,
+    dx: i32,
+    dy: i32,
+    left: bool,
+    was_left: bool,
+}
+
+struct Mouse {
+    packet: [u8; 3],
+    packet_index: usize,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    left: bool,
+    enabled: bool,
+}
+
+impl Mouse {
+    fn new(width: usize, height: usize) -> Self {
+        let enabled = unsafe { initialize_ps2_mouse() };
+        if enabled {
+            debug_write("PS/2 mouse online\n");
+        } else {
+            debug_write("PS/2 mouse unavailable\n");
+        }
+        Self {
+            packet: [0; 3],
+            packet_index: 0,
+            x: width / 2,
+            y: height / 2,
+            width,
+            height,
+            left: false,
+            enabled,
+        }
+    }
+
+    fn poll(&mut self) -> Option<MouseEvent> {
+        if !self.enabled {
+            return None;
+        }
+        let status = unsafe { in8(0x64) };
+        if status & 0x21 != 0x21 {
+            return None;
+        }
+        let byte = unsafe { in8(0x60) };
+        if self.packet_index == 0 && byte & 0x08 == 0 {
+            return None;
+        }
+        self.packet[self.packet_index] = byte;
+        self.packet_index += 1;
+        if self.packet_index != 3 {
+            return None;
+        }
+        self.packet_index = 0;
+        if self.packet[0] & 0xc0 != 0 {
+            return None;
+        }
+        let dx = self.packet[1] as i8 as i32;
+        let dy = -(self.packet[2] as i8 as i32);
+        self.x = ((self.x as i64 + dx as i64).max(0) as usize)
+            .min(self.width.saturating_sub(1));
+        self.y = ((self.y as i64 + dy as i64).max(0) as usize)
+            .min(self.height.saturating_sub(1));
+        let was_left = self.left;
+        self.left = self.packet[0] & 1 != 0;
+        Some(MouseEvent {
+            x: self.x,
+            y: self.y,
+            dx,
+            dy,
+            left: self.left,
+            was_left,
+        })
+    }
+}
+
+unsafe fn ps2_wait_write() -> bool {
+    for _ in 0..100_000 {
+        if in8(0x64) & 2 == 0 {
+            return true;
+        }
+        core::hint::spin_loop();
+    }
+    false
+}
+
+unsafe fn ps2_wait_read() -> bool {
+    for _ in 0..100_000 {
+        if in8(0x64) & 1 != 0 {
+            return true;
+        }
+        core::hint::spin_loop();
+    }
+    false
+}
+
+unsafe fn ps2_mouse_command(command: u8) -> bool {
+    if !ps2_wait_write() {
+        return false;
+    }
+    out8(0x64, 0xd4);
+    if !ps2_wait_write() {
+        return false;
+    }
+    out8(0x60, command);
+    ps2_wait_read() && in8(0x60) == 0xfa
+}
+
+unsafe fn initialize_ps2_mouse() -> bool {
+    for _ in 0..32 {
+        if in8(0x64) & 1 == 0 {
+            break;
+        }
+        let _ = in8(0x60);
+    }
+    if !ps2_wait_write() {
+        return false;
+    }
+    out8(0x64, 0xa8);
+    if !ps2_wait_write() {
+        return false;
+    }
+    out8(0x64, 0x20);
+    if !ps2_wait_read() {
+        return false;
+    }
+    let configuration = (in8(0x60) | 0x02) & !0x20;
+    if !ps2_wait_write() {
+        return false;
+    }
+    out8(0x64, 0x60);
+    if !ps2_wait_write() {
+        return false;
+    }
+    out8(0x60, configuration);
+    ps2_mouse_command(0xf6) && ps2_mouse_command(0xf4)
+}
+
+fn rtc_register(register: u8) -> u8 {
+    unsafe {
+        out8(0x70, register);
+        in8(0x71)
+    }
+}
+
+fn rtc_time() -> Option<(u8, u8, u8)> {
+    if rtc_register(0x0a) & 0x80 != 0 {
+        return None;
+    }
+    let first_second = rtc_register(0x00);
+    let minute = rtc_register(0x02);
+    let raw_hour = rtc_register(0x04);
+    let mode = rtc_register(0x0b);
+    if first_second != rtc_register(0x00) {
+        return None;
+    }
+    let decode = |value: u8| {
+        if mode & 0x04 != 0 { value } else { (value & 0x0f) + ((value >> 4) * 10) }
+    };
+    let second = decode(first_second);
+    let minute = decode(minute);
+    let mut hour = decode(raw_hour & 0x7f);
+    if mode & 0x02 == 0 {
+        let afternoon = raw_hour & 0x80 != 0;
+        hour %= 12;
+        if afternoon {
+            hour += 12;
+        }
+    }
+    Some((hour, minute, second))
 }
 
 /* ------------------------------ e1000 ------------------------------ */
