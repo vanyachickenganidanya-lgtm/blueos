@@ -1,0 +1,84 @@
+name: Build BlueOS images
+
+on:
+  push:
+    branches:
+      - main
+      - arena/01a00aff-blueos
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-boot:
+    name: x86_64 + RISC-V 64
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust bare-metal targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-none,riscv64imac-unknown-none-elf
+
+      - name: Install QEMU and binary tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes binutils qemu-system-x86 qemu-system-misc
+
+      - name: Build both architectures
+        run: make check
+
+      - name: Smoke-test x86_64 boot
+        run: |
+          set +e
+          timeout 15s qemu-system-x86_64 \
+            -machine pc -m 128M \
+            -drive format=raw,file=images/blueos-x86_64.img,if=ide,index=0 \
+            -device VGA \
+            -netdev user,id=blueosnet \
+            -device e1000,netdev=blueosnet,mac=52:54:00:12:34:56 \
+            -display none -monitor none -serial file:build/x86-serial.log \
+            -no-reboot
+          status=$?
+          set -e
+          test "$status" -eq 0 -o "$status" -eq 124
+          cat build/x86-serial.log
+          grep -q "BlueOS x86_64 kernel entry" build/x86-serial.log
+          grep -q "Lua bytecode VM online" build/x86-serial.log
+
+      - name: Smoke-test RISC-V boot
+        run: |
+          set +e
+          timeout 15s qemu-system-riscv64 \
+            -machine virt -m 256M -smp 1 \
+            -bios default -kernel images/blueos-riscv64.elf \
+            -device virtio-gpu-device \
+            -netdev user,id=blueosnet \
+            -device virtio-net-device,netdev=blueosnet,mac=52:54:00:12:34:57 \
+            -display none -monitor none -serial file:build/riscv64-serial.log \
+            -no-reboot
+          status=$?
+          set -e
+          test "$status" -eq 0 -o "$status" -eq 124
+          cat build/riscv64-serial.log
+          grep -q "BlueOS riscv64 kernel entry" build/riscv64-serial.log
+          grep -q "Lua bytecode VM online" build/riscv64-serial.log
+
+      - name: Upload bootable images and serial logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blueos-qemu-images
+          if-no-files-found: error
+          path: |
+            images/blueos-x86_64.img
+            images/blueos-x86_64.elf
+            images/blueos-riscv64.elf
+            build/x86-serial.log
+            build/riscv64-serial.log

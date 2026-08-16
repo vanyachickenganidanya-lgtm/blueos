@@ -53,6 +53,12 @@ images/blueos-riscv64.elf  загружаемый OpenSBI/QEMU RISC-V image
 make check
 ```
 
+### Сборка в GitHub Actions
+
+Готовый workflow хранится в [`ci/github-actions-build.yml`](ci/github-actions-build.yml). Он собирает обе архитектуры, запускает их в QEMU, проверяет serial-лог и публикует образы как artifact `blueos-qemu-images`.
+
+Чтобы включить CI, владелец репозитория должен один раз через GitHub создать файл `.github/workflows/build.yml` с содержимым этого шаблона. Шаблон нельзя автоматически положить в `.github/workflows` через ограниченное подключение GitHub App без разрешения `workflows`.
+
 ### 3. Запуск x86_64
 
 ```bash
