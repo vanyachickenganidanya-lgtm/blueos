@@ -25,7 +25,7 @@ tools:
 
 x86_64: tools
 	@mkdir -p $(OUT)/x86 $(IMAGES)
-	$(CARGO) build --$(PROFILE) --target $(X86_TARGET)
+	./scripts/cargo-build.sh $(CARGO) build --$(PROFILE) --target $(X86_TARGET)
 	objcopy -O binary target/$(X86_TARGET)/$(PROFILE)/blueos $(OUT)/x86/kernel.bin
 	@kernel_size=$$(stat -c%s $(OUT)/x86/kernel.bin); \
 	 kernel_sectors=$$(( (kernel_size + 511) / 512 )); \
@@ -48,7 +48,7 @@ x86_64: tools
 
 riscv64: tools
 	@mkdir -p $(OUT)/riscv64 $(IMAGES)
-	$(CARGO) build --$(PROFILE) --target $(RISCV_TARGET)
+	./scripts/cargo-build.sh $(CARGO) build --$(PROFILE) --target $(RISCV_TARGET)
 	cp target/$(RISCV_TARGET)/$(PROFILE)/blueos $(IMAGES)/blueos-riscv64.elf
 	@echo "Built $(IMAGES)/blueos-riscv64.elf (OpenSBI/QEMU kernel image)"
 
