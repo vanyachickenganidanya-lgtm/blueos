@@ -53,6 +53,12 @@ pub const BLOCK_IO_GUID: Guid = Guid {
     data3: 0x11d2,
     data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
 };
+pub const SIMPLE_FILE_SYSTEM_GUID: Guid = Guid {
+    data1: 0x964e_5b22,
+    data2: 0x6459,
+    data3: 0x11d2,
+    data4: [0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b],
+};
 pub const LOADED_IMAGE_GUID: Guid = Guid {
     data1: 0x5b1b_31a1,
     data2: 0x9562,
@@ -320,6 +326,37 @@ pub struct SimpleNetwork {
     pub receive: SnpReceive,
     pub wait_for_packet: Event,
     pub mode: *mut SimpleNetworkMode,
+}
+
+pub type OpenVolume =
+    extern "efiapi" fn(*mut SimpleFileSystem, *mut *mut FileProtocol) -> Status;
+pub type CloseFile = extern "efiapi" fn(*mut FileProtocol) -> Status;
+pub type ReadFile =
+    extern "efiapi" fn(*mut FileProtocol, *mut usize, *mut c_void) -> Status;
+
+#[repr(C)]
+pub struct SimpleFileSystem {
+    pub revision: u64,
+    pub open_volume: OpenVolume,
+}
+
+#[repr(C)]
+pub struct FileProtocol {
+    pub revision: u64,
+    pub open: usize,
+    pub close: CloseFile,
+    pub delete: usize,
+    pub read: ReadFile,
+    pub write: usize,
+    pub get_position: usize,
+    pub set_position: usize,
+    pub get_info: usize,
+    pub set_info: usize,
+    pub flush: usize,
+    pub open_ex: usize,
+    pub read_ex: usize,
+    pub write_ex: usize,
+    pub flush_ex: usize,
 }
 
 #[repr(C)]

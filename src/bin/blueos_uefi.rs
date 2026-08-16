@@ -24,9 +24,9 @@ use framebuffer::{Ui, UiAction};
 use net::{NetworkStack, Nic};
 use shell::{FeedResult, Shell};
 use uefi::{
-    BlockIo, Handle, InputKey, SimpleNetwork, SimplePointer, SimplePointerState, Status,
-    SystemTable, Time, BLOCK_IO_GUID, BY_PROTOCOL, LOADER_DATA, SIMPLE_NETWORK_GUID,
-    SIMPLE_POINTER_GUID, SUCCESS,
+    BlockIo, FileProtocol, Handle, InputKey, SimpleFileSystem, SimpleNetwork, SimplePointer,
+    SimplePointerState, Status, SystemTable, Time, BLOCK_IO_GUID, BY_PROTOCOL, LOADER_DATA,
+    SIMPLE_FILE_SYSTEM_GUID, SIMPLE_NETWORK_GUID, SIMPLE_POINTER_GUID, SUCCESS,
 };
 
 const IMAGE_BLOCKS: u64 = 131_072; // 64 MiB hybrid BIOS/UEFI image.
@@ -450,14 +450,132 @@ impl Installer {
     }
 }
 
-fn open_action(action: UiAction, ui: &mut Ui, shell: &mut Shell, installer: &Installer) {
+#[repr(align(8))]
+struct FileInfoBuffer([u8; 1_024]);
+
+unsafe fn write_file_name(ui: &mut Ui, buffer: &[u8], size: usize) {
+    const NAME_OFFSET: usize = 80;
+    let mut ascii = [0u8; 40];
+    let mut length = 0usize;
+    let units = size.saturating_sub(NAME_OFFSET) / 2;
+    for index in 0..units.min(ascii.len()) {
+        let offset = NAME_OFFSET + index * 2;
+        let character = u16::from_le_bytes([buffer[offset], buffer[offset + 1]]);
+        if character == 0 {
+            break;
+        }
+        ascii[length] = if (0x20..=0x7e).contains(&character) {
+            character as u8
+        } else {
+            b'?'
+        };
+        length += 1;
+    }
+    if length == 0 {
+        ui.write("<unnamed>");
+    } else {
+        ui.write(core::str::from_utf8_unchecked(&ascii[..length]));
+    }
+}
+
+unsafe fn show_firmware_files(ui: &mut Ui, table: *mut SystemTable) {
+    ui.open_window("BLUEOS FILE MANAGER");
+    ui.write("UEFI FILESYSTEM VOLUMES (READ-ONLY VIEW)\n\n");
+    if table.is_null() || (*table).boot_services.is_null() {
+        ui.write("Firmware filesystem service unavailable.\n> ");
+        return;
+    }
+    let services = (*table).boot_services;
+    let mut handle_count = 0usize;
+    let mut handles: *mut Handle = null_mut();
+    if ((*services).locate_handle_buffer)(
+        BY_PROTOCOL,
+        &SIMPLE_FILE_SYSTEM_GUID,
+        core::ptr::null(),
+        &mut handle_count,
+        &mut handles,
+    ) != SUCCESS || handles.is_null()
+    {
+        ui.write("No firmware-readable filesystem was found.\n> ");
+        return;
+    }
+
+    let mut volume_count = 0usize;
+    let mut entry_count = 0usize;
+    for index in 0..handle_count {
+        let mut interface: *mut c_void = null_mut();
+        if ((*services).handle_protocol)(
+            *handles.add(index),
+            &SIMPLE_FILE_SYSTEM_GUID,
+            &mut interface,
+        ) != SUCCESS || interface.is_null()
+        {
+            continue;
+        }
+        let filesystem = interface.cast::<SimpleFileSystem>();
+        let mut root: *mut FileProtocol = null_mut();
+        if ((*filesystem).open_volume)(filesystem, &mut root) != SUCCESS || root.is_null() {
+            continue;
+        }
+        volume_count += 1;
+        ui.write("VOLUME ");
+        ui.write_number(volume_count as i64);
+        ui.write("  /\n");
+        loop {
+            let mut info = FileInfoBuffer([0; 1_024]);
+            let mut size = info.0.len();
+            let status = ((*root).read)(root, &mut size, info.0.as_mut_ptr().cast());
+            if status != SUCCESS || size == 0 {
+                break;
+            }
+            if size < 82 || size > info.0.len() {
+                ui.write("  [invalid firmware directory entry]\n");
+                break;
+            }
+            let file_size = core::ptr::read_unaligned(info.0.as_ptr().add(8).cast::<u64>());
+            let attributes = core::ptr::read_unaligned(info.0.as_ptr().add(72).cast::<u64>());
+            ui.write(if attributes & 0x10 != 0 { "  <DIR> " } else { "        " });
+            write_file_name(ui, &info.0, size);
+            if attributes & 0x10 == 0 {
+                ui.write("  ");
+                ui.write_number(file_size.min(i64::MAX as u64) as i64);
+                ui.write(" B");
+            }
+            ui.write("\n");
+            entry_count += 1;
+            if entry_count >= 12 {
+                ui.write("  ... entry display limit reached\n");
+                break;
+            }
+        }
+        ((*root).close)(root);
+        if entry_count >= 12 {
+            break;
+        }
+    }
+    ((*services).free_pool)(handles.cast());
+    if volume_count == 0 {
+        ui.write("No filesystem volume could be opened.\n");
+    } else if entry_count == 0 {
+        ui.write("All opened volumes were empty.\n");
+    }
+    ui.write("\nThis view never modifies files.\n> ");
+}
+
+fn open_action(
+    action: UiAction,
+    ui: &mut Ui,
+    shell: &mut Shell,
+    installer: &Installer,
+    table: *mut SystemTable,
+) {
     match action {
         UiAction::Launcher => ui.open_launcher(),
         UiAction::Terminal => {
             ui.open_window("KONSOLE");
             ui.write("> ");
         }
-        UiAction::Files => ui.open_files(),
+        UiAction::Files => unsafe { show_firmware_files(ui, table) },
         UiAction::Settings => ui.open_settings(),
         UiAction::Installer => installer.show(ui),
         UiAction::None => return,
@@ -567,7 +685,7 @@ pub unsafe extern "efiapi" fn efi_main(
                         dragging = true;
                     } else {
                         let action = ui.click(pointer_x, pointer_y);
-                        open_action(action, &mut ui, &mut shell, &installer);
+                        open_action(action, &mut ui, &mut shell, &installer, system_table);
                     }
                 }
                 if pressed && dragging && (dx != 0 || dy != 0) {
@@ -609,7 +727,7 @@ pub unsafe extern "efiapi" fn efi_main(
             _ => UiAction::None,
         };
         if shortcut != UiAction::None {
-            open_action(shortcut, &mut ui, &mut shell, &installer);
+            open_action(shortcut, &mut ui, &mut shell, &installer, system_table);
             continue;
         }
         let byte = if key.unicode_char <= 0x7f { key.unicode_char as u8 } else { 0 };
@@ -627,6 +745,8 @@ pub unsafe extern "efiapi" fn efi_main(
                 let line = shell.line();
                 if line.eq_ignore_ascii_case("install") {
                     installer.show(&mut ui);
+                } else if line.eq_ignore_ascii_case("files") {
+                    show_firmware_files(&mut ui, system_table);
                 } else if line.len() > 15
                     && line[..15].eq_ignore_ascii_case("install select ")
                 {
