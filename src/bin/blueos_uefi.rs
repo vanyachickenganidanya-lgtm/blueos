@@ -622,12 +622,12 @@ pub unsafe extern "efiapi" fn efi_main(
     let mut installer = Installer::discover(system_table);
     let mut shell = Shell::new();
     let mut network = FirmwareNic::probe().map(|mut nic| {
-        let mut stack = NetworkStack::new(nic.mac_address());
+        let mut stack = NetworkStack::new_dhcp(nic.mac_address());
         stack.start(&mut nic);
         (nic, stack)
     });
     if network.is_some() {
-        ui.write("UEFI Simple Network Protocol online.\n> ");
+        ui.write("UEFI Simple Network Protocol online; DHCP request sent.\n> ");
     } else {
         ui.write("UEFI network protocol unavailable; desktop remains offline.\n> ");
     }

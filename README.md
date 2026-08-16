@@ -145,7 +145,7 @@ return 0
 - `INFO` — сведения о ядре;
 - `CLEAR` — очистить framebuffer-терминал.
 
-Сеть использует стандартную адресацию QEMU user networking: гостевой IP `10.0.2.15`, gateway `10.0.2.2`, DNS `10.0.2.3`. После ARP драйвер автоматически отправляет DNS-запрос. ICMP echo request, пришедший на `10.0.2.15`, получает ответ. UEFI workspace передаёт те же Ethernet frames через firmware SNP; для произвольной физической LAN ещё нужен DHCP/configuration UI, поэтому наличие SNP само по себе не гарантирует доступ в интернет вне этой адресации.
+Legacy x86_64 и RISC-V используют стандартную адресацию QEMU user networking: гостевой IP `10.0.2.15`, gateway `10.0.2.2`, DNS `10.0.2.3`. UEFI workspace через firmware SNP выполняет allocation-free DHCP Discover/Request, принимает адрес gateway/DNS из ACK, затем запускает ARP и DNS. Команда `NET` повторяет незавершённый DHCP/ARP-запрос, а `DNS` разрешает `example.com` через выданный сервер. ICMP echo request, пришедший на текущий адрес, получает ответ. DHCP lease renewal и ручная configuration UI ещё не реализованы.
 
 ## Как устроено
 

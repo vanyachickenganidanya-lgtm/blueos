@@ -25,7 +25,7 @@ Status meanings:
 | Storage | USB mass storage / xHCI | Partial | Planned | UEFI Block I/O can expose a boot USB. No native xHCI or USB stack yet. |
 | Files | UEFI Simple File System | Implemented | — | Read-only root-directory listing; intentionally no create, write or delete operation. |
 | Files | Native filesystem / VFS | Planned | Planned | The non-UEFI file view is currently a virtual read-only system tree. |
-| Ethernet | UEFI Simple Network Protocol | Partial | — | Raw Ethernet, ARP, IPv4, ICMP, UDP and DNS are implemented. Static QEMU addressing is currently used; DHCP and physical LAN configuration are pending. |
+| Ethernet | UEFI Simple Network Protocol | Partial | — | Raw Ethernet, DHCP Discover/Request/ACK, ARP, IPv4, ICMP, UDP and DNS are implemented. Lease renewal, manual addressing, TCP and TLS are pending. |
 | Ethernet | Intel e1000 PCI | — | Partial | QEMU e1000 is smoke-tested. The current native probe scans PCI bus 0 and uses identity-mapped MMIO. |
 | Ethernet | RISC-V virtio-net MMIO | — | — | Implemented on the separate RISC-V `virt` target; not an AMD64 hardware path. |
 | PCI | Configuration mechanism #1 | — | Partial | Bus-0 probing is used by e1000. Recursive bridges, ECAM/MMCONFIG and a user-visible inventory are pending. |

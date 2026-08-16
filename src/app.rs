@@ -72,7 +72,7 @@ pub fn execute<N: Nic>(
     } else if command.eq_ignore_ascii_case("dns") {
         match network {
             Some((nic, stack)) => {
-                ui.write("Resolving example.com through 10.0.2.3...\n");
+                ui.write("Resolving example.com through the configured DNS server...\n");
                 stack.request_dns(nic);
             }
             None => ui.write("Network is unavailable.\n"),
@@ -117,6 +117,11 @@ pub fn run_lua_demo(ui: &mut Ui) {
 
 pub fn show_network_event(ui: &mut Ui, event: Event) {
     match event {
+        Event::DhcpConfigured(address) => {
+            ui.write("\n[net] DHCP lease configured: ");
+            ui.write_ipv4(address);
+            ui.write("\n> ");
+        }
         Event::GatewayResolved => ui.write("\n[net] gateway MAC resolved; DNS query sent\n> "),
         Event::IcmpEchoRequest(address) => {
             ui.write("\n[net] answered ICMP echo from ");
