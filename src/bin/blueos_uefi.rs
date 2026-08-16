@@ -164,6 +164,40 @@ impl Nic for FirmwareNic {
     }
 }
 
+#[repr(align(64))]
+struct AlignedSector([u8; 512]);
+
+unsafe fn is_blueos_source(block: *mut BlockIo) -> bool {
+    let media = (*block).media;
+    if media.is_null()
+        || (*media).last_block.saturating_add(1) < IMAGE_BLOCKS
+        || (*media).io_align > 64
+    {
+        return false;
+    }
+    let mut sector = AlignedSector([0; 512]);
+    let status = ((*block).read_blocks)(
+        block,
+        (*media).media_id,
+        0,
+        sector.0.len(),
+        sector.0.as_mut_ptr().cast(),
+    );
+    if uefi::is_error(status) {
+        return false;
+    }
+    let start = u32::from_le_bytes([
+        sector.0[454], sector.0[455], sector.0[456], sector.0[457],
+    ]);
+    let length = u32::from_le_bytes([
+        sector.0[458], sector.0[459], sector.0[460], sector.0[461],
+    ]);
+    sector.0[450] == 0xef
+        && start == 2_048
+        && length as u64 == IMAGE_BLOCKS - 2_048
+        && sector.0[510..512] == [0x55, 0xaa]
+}
+
 #[derive(Clone, Copy)]
 struct Installer {
     source: *mut BlockIo,
@@ -220,9 +254,12 @@ impl Installer {
             {
                 continue;
             }
-            if (*media).removable_media != 0 && result.source.is_null() {
-                // Installation is deliberately disabled unless a whole,
-                // removable source medium can be distinguished from targets.
+            if (*media).removable_media != 0
+                && result.source.is_null()
+                && is_blueos_source(block)
+            {
+                // Installation is deliberately disabled unless the removable
+                // whole disk carries the exact BlueOS hybrid-image layout.
                 result.source = block;
             } else if (*media).removable_media == 0
                 && (*media).read_only == 0
@@ -243,7 +280,7 @@ impl Installer {
             if self.source.is_null() {
                 ui.write("Source: no removable BlueOS USB was found.\n");
             } else {
-                ui.write("Source: removable live media, 64 MiB payload ready.\n");
+                ui.write("Source: verified removable BlueOS media, 64 MiB payload ready.\n");
             }
             if self.target_count == 0 {
                 ui.write("Targets: no writable whole internal disk of at least 64 MiB.\n");
