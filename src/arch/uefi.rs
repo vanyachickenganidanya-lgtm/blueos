@@ -14,6 +14,16 @@ pub fn system_table() -> *mut SystemTable {
 
 pub fn debug_write(text: &str) {
     unsafe {
+        // QEMU's conventional debug port provides a firmware-independent CI
+        // log while remaining harmless on physical PCs where the port is idle.
+        for byte in text.bytes() {
+            core::arch::asm!(
+                "out dx, al",
+                in("dx") 0x00e9u16,
+                in("al") byte,
+                options(nomem, nostack, preserves_flags),
+            );
+        }
         let table = SYSTEM_TABLE;
         if table.is_null() || (*table).con_out.is_null() {
             return;

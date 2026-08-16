@@ -58,9 +58,9 @@ make check
 
 ### Сборка в GitHub Actions
 
-Готовый workflow хранится в [`ci/github-actions-build.yml`](ci/github-actions-build.yml). Он собирает обе архитектуры, запускает их в QEMU, проверяет serial-лог и публикует образы как artifact `blueos-qemu-images`.
+Готовый workflow хранится в [`ci/github-actions-build.yml`](ci/github-actions-build.yml). Он собирает обе архитектуры, запускает Legacy BIOS, OVMF/UEFI и RISC-V в QEMU, проверяет serial/debug-логи и публикует образы как artifact `blueos-qemu-images`.
 
-Чтобы включить CI, владелец репозитория должен один раз через GitHub создать файл `.github/workflows/build.yml` с содержимым этого шаблона. Шаблон нельзя автоматически положить в `.github/workflows` через ограниченное подключение GitHub App без разрешения `workflows`.
+Чтобы включить или обновить CI, владелец репозитория должен через GitHub скопировать этот шаблон в `.github/workflows/build.yml`. Шаблон нельзя автоматически положить туда через ограниченное подключение GitHub App без разрешения `workflows`; после изменений `ci/github-actions-build.yml` установленный workflow тоже нужно синхронизировать вручную.
 
 ### 3. Запуск x86_64
 
