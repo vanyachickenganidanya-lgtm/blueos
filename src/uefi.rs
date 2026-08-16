@@ -41,6 +41,12 @@ pub const SIMPLE_POINTER_GUID: Guid = Guid {
     data3: 0x11d5,
     data4: [0x9a, 0x4f, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d],
 };
+pub const SIMPLE_NETWORK_GUID: Guid = Guid {
+    data1: 0xa198_32b9,
+    data2: 0xac25,
+    data3: 0x11d3,
+    data4: [0x9a, 0x2d, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d],
+};
 pub const BLOCK_IO_GUID: Guid = Guid {
     data1: 0x964e_5b21,
     data2: 0x6459,
@@ -244,6 +250,76 @@ pub struct SimplePointer {
     pub get_state: extern "efiapi" fn(*mut SimplePointer, *mut SimplePointerState) -> Status,
     pub wait_for_input: Event,
     pub mode: *mut c_void,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MacAddress {
+    pub address: [u8; 32],
+}
+
+#[repr(C)]
+pub struct SimpleNetworkMode {
+    pub state: u32,
+    pub hardware_address_size: u32,
+    pub media_header_size: u32,
+    pub max_packet_size: u32,
+    pub nvram_size: u32,
+    pub nvram_access_size: u32,
+    pub receive_filter_mask: u32,
+    pub receive_filter_setting: u32,
+    pub max_mcast_filter_count: u32,
+    pub mcast_filter_count: u32,
+    pub mcast_filter: [MacAddress; 16],
+    pub current_address: MacAddress,
+    pub broadcast_address: MacAddress,
+    pub permanent_address: MacAddress,
+    pub if_type: u8,
+    pub mac_address_changeable: u8,
+    pub multiple_tx_supported: u8,
+    pub media_present_supported: u8,
+    pub media_present: u8,
+}
+
+pub type SnpGetStatus =
+    extern "efiapi" fn(*mut SimpleNetwork, *mut u32, *mut *mut c_void) -> Status;
+pub type SnpTransmit = extern "efiapi" fn(
+    *mut SimpleNetwork,
+    usize,
+    usize,
+    *mut c_void,
+    *mut MacAddress,
+    *mut MacAddress,
+    *mut u16,
+) -> Status;
+pub type SnpReceive = extern "efiapi" fn(
+    *mut SimpleNetwork,
+    *mut usize,
+    *mut usize,
+    *mut c_void,
+    *mut MacAddress,
+    *mut MacAddress,
+    *mut u16,
+) -> Status;
+
+#[repr(C)]
+pub struct SimpleNetwork {
+    pub revision: u64,
+    pub start: extern "efiapi" fn(*mut SimpleNetwork) -> Status,
+    pub stop: usize,
+    pub initialize: extern "efiapi" fn(*mut SimpleNetwork, usize, usize) -> Status,
+    pub reset: usize,
+    pub shutdown: usize,
+    pub receive_filters: usize,
+    pub station_address: usize,
+    pub statistics: usize,
+    pub mcast_ip_to_mac: usize,
+    pub nv_data: usize,
+    pub get_status: SnpGetStatus,
+    pub transmit: SnpTransmit,
+    pub receive: SnpReceive,
+    pub wait_for_packet: Event,
+    pub mode: *mut SimpleNetworkMode,
 }
 
 #[repr(C)]

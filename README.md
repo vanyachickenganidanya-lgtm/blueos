@@ -4,7 +4,7 @@ BlueOS — маленькая учебная ОС, написанная **с н�
 
 | Платформа | Загрузка | Графика | Сеть | Ввод |
 |---|---|---|---|---|
-| x86_64 UEFI | нативное Rust UEFI-приложение `BOOTX64.EFI` | GOP 32-bit framebuffer | в разработке | Simple Text Input + Simple Pointer |
+| x86_64 UEFI | нативное Rust UEFI-приложение `BOOTX64.EFI` | GOP 32-bit framebuffer | firmware SNP + ARP/IPv4/ICMP/UDP/DNS | Simple Text Input + Simple Pointer |
 | x86_64 Legacy BIOS | собственные stage1/stage2 на GNU Assembly, long mode | VESA VBE 0x118, linear framebuffer 1024×768×24 | Intel e1000 + PCI | PS/2-клавиатура и мышь |
 | RISC-V 64 `virt` | OpenSBI + точка входа на RISC-V Assembly | virtio-gpu, framebuffer 800×600×32 | virtio-net MMIO | UART/serial |
 
@@ -13,7 +13,7 @@ BlueOS — маленькая учебная ОС, написанная **с н�
 - собственный Plasma-подобный рабочий стол: обои, панель, launcher, переключение приложений, перемещаемые мышью окна, часы, терминал, файлы, настройки и установщик (это не код KDE/Qt);
 - UEFI GUI-установщик с обязательным выбором диска, фразой подтверждения `INSTALL ERASE`, прогрессом, flush и полным read-back сравнением;
 - allocation-free компилятор Lua-подобного подмножества в байткод и стековая VM;
-- Ethernet, ARP, IPv4, ICMP echo, UDP и DNS-клиент в bare-metal ядрах;
+- Ethernet, ARP, IPv4, ICMP echo, UDP и DNS-клиент через e1000/virtio или firmware UEFI SNP;
 - интерактивная командная строка (`HELP`, `INFO`, `CLEAR`, `LUA`, `NET`, `DNS`, `FILES`, `SETTINGS`, `INSTALL`);
 - serial-лог для диагностики обеих архитектур.
 
@@ -144,7 +144,7 @@ return 0
 - `INFO` — сведения о ядре;
 - `CLEAR` — очистить framebuffer-терминал.
 
-Сеть использует стандартную адресацию QEMU user networking: гостевой IP `10.0.2.15`, gateway `10.0.2.2`, DNS `10.0.2.3`. После ARP драйвер автоматически отправляет DNS-запрос. ICMP echo request, пришедший на `10.0.2.15`, получает ответ.
+Сеть использует стандартную адресацию QEMU user networking: гостевой IP `10.0.2.15`, gateway `10.0.2.2`, DNS `10.0.2.3`. После ARP драйвер автоматически отправляет DNS-запрос. ICMP echo request, пришедший на `10.0.2.15`, получает ответ. UEFI workspace передаёт те же Ethernet frames через firmware SNP; для произвольной физической LAN ещё нужен DHCP/configuration UI, поэтому наличие SNP само по себе не гарантирует доступ в интернет вне этой адресации.
 
 ## Как устроено
 

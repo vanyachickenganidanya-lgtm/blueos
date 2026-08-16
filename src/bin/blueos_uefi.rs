@@ -24,17 +24,140 @@ use framebuffer::{Ui, UiAction};
 use net::{NetworkStack, Nic};
 use shell::{FeedResult, Shell};
 use uefi::{
-    BlockIo, Handle, InputKey, SimplePointer, SimplePointerState, Status, SystemTable, Time,
-    BLOCK_IO_GUID, BY_PROTOCOL, LOADER_DATA, SIMPLE_POINTER_GUID, SUCCESS,
+    BlockIo, Handle, InputKey, SimpleNetwork, SimplePointer, SimplePointerState, Status,
+    SystemTable, Time, BLOCK_IO_GUID, BY_PROTOCOL, LOADER_DATA, SIMPLE_NETWORK_GUID,
+    SIMPLE_POINTER_GUID, SUCCESS,
 };
 
 const IMAGE_BLOCKS: u64 = 131_072; // 64 MiB hybrid BIOS/UEFI image.
 
-struct FirmwareNic;
+const SNP_TX_COUNT: usize = 4;
+const SNP_BUFFER_SIZE: usize = 1_600;
+
+struct FirmwareNic {
+    protocol: *mut SimpleNetwork,
+    mac: [u8; 6],
+    transmit_buffers: [[u8; SNP_BUFFER_SIZE]; SNP_TX_COUNT],
+    transmit_busy: [bool; SNP_TX_COUNT],
+}
+
+impl FirmwareNic {
+    unsafe fn probe() -> Option<Self> {
+        let protocol = arch::locate_protocol::<SimpleNetwork>(&SIMPLE_NETWORK_GUID)?;
+        let mut mode = (*protocol).mode;
+        if mode.is_null() {
+            return None;
+        }
+        if (*mode).state == 0 && uefi::is_error(((*protocol).start)(protocol)) {
+            return None;
+        }
+        mode = (*protocol).mode;
+        if mode.is_null() {
+            return None;
+        }
+        if (*mode).state == 1
+            && uefi::is_error(((*protocol).initialize)(protocol, 0, 0))
+        {
+            return None;
+        }
+        mode = (*protocol).mode;
+        if mode.is_null()
+            || (*mode).state != 2
+            || (*mode).hardware_address_size < 6
+            || ((*mode).media_present_supported != 0 && (*mode).media_present == 0)
+        {
+            return None;
+        }
+        let mut mac = [0u8; 6];
+        mac.copy_from_slice(&(*mode).current_address.address[..6]);
+        if mac == [0; 6] {
+            return None;
+        }
+        Some(Self {
+            protocol,
+            mac,
+            transmit_buffers: [[0; SNP_BUFFER_SIZE]; SNP_TX_COUNT],
+            transmit_busy: [false; SNP_TX_COUNT],
+        })
+    }
+
+    fn reclaim(&mut self) {
+        unsafe {
+            for _ in 0..SNP_TX_COUNT {
+                let mut interrupt_status = 0u32;
+                let mut recycled: *mut c_void = null_mut();
+                if uefi::is_error(((*self.protocol).get_status)(
+                    self.protocol,
+                    &mut interrupt_status,
+                    &mut recycled,
+                )) || recycled.is_null()
+                {
+                    break;
+                }
+                for index in 0..SNP_TX_COUNT {
+                    if self.transmit_buffers[index].as_mut_ptr().cast::<c_void>() == recycled {
+                        self.transmit_busy[index] = false;
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl Nic for FirmwareNic {
-    fn mac_address(&self) -> [u8; 6] { [0; 6] }
-    fn receive(&mut self, _packet: &mut [u8]) -> Option<usize> { None }
-    fn transmit(&mut self, _packet: &[u8]) -> bool { false }
+    fn mac_address(&self) -> [u8; 6] {
+        self.mac
+    }
+
+    fn receive(&mut self, packet: &mut [u8]) -> Option<usize> {
+        unsafe {
+            let mut header_size = 0usize;
+            let mut buffer_size = packet.len();
+            let status = ((*self.protocol).receive)(
+                self.protocol,
+                &mut header_size,
+                &mut buffer_size,
+                packet.as_mut_ptr().cast(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+            );
+            if status == SUCCESS {
+                Some(buffer_size.min(packet.len()))
+            } else {
+                None
+            }
+        }
+    }
+
+    fn transmit(&mut self, packet: &[u8]) -> bool {
+        if packet.len() > SNP_BUFFER_SIZE {
+            return false;
+        }
+        self.reclaim();
+        let index = match self.transmit_busy.iter().position(|busy| !*busy) {
+            Some(index) => index,
+            None => return false,
+        };
+        self.transmit_buffers[index][..packet.len()].copy_from_slice(packet);
+        let status = unsafe {
+            ((*self.protocol).transmit)(
+                self.protocol,
+                0,
+                packet.len(),
+                self.transmit_buffers[index].as_mut_ptr().cast(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+            )
+        };
+        if uefi::is_error(status) {
+            false
+        } else {
+            self.transmit_busy[index] = true;
+            true
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -339,7 +462,16 @@ pub unsafe extern "efiapi" fn efi_main(
 
     let mut installer = Installer::discover(system_table);
     let mut shell = Shell::new();
-    let mut network: Option<(FirmwareNic, NetworkStack)> = None;
+    let mut network = FirmwareNic::probe().map(|mut nic| {
+        let mut stack = NetworkStack::new(nic.mac_address());
+        stack.start(&mut nic);
+        (nic, stack)
+    });
+    if network.is_some() {
+        ui.write("UEFI Simple Network Protocol online.\n> ");
+    } else {
+        ui.write("UEFI network protocol unavailable; desktop remains offline.\n> ");
+    }
     let pointer = arch::locate_protocol::<SimplePointer>(&SIMPLE_POINTER_GUID);
     if let Some(device) = pointer {
         ((*device).reset)(device, 0);
@@ -408,6 +540,11 @@ pub unsafe extern "efiapi" fn efi_main(
         }
         if pointer.is_some() {
             ui.draw_pointer(pointer_x, pointer_y);
+        }
+        if let Some((nic, stack)) = &mut network {
+            if let Some(event) = stack.poll(nic) {
+                app::show_network_event(&mut ui, event);
+            }
         }
 
         let input = (*system_table).con_in;

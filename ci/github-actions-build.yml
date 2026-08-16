@@ -64,7 +64,10 @@ jobs:
             -drive if=pflash,format=raw,readonly=on,file="$code" \
             -drive if=pflash,format=raw,file=build/uefi-vars.fd \
             -drive format=raw,file=images/blueos-x86_64.img,if=ide,index=0 \
-            -device VGA -display none -monitor none -serial none \
+            -device VGA \
+            -netdev user,id=blueosnet \
+            -device e1000,netdev=blueosnet,mac=52:54:00:12:34:56 \
+            -display none -monitor none -serial none \
             -debugcon file:build/uefi-debug.log \
             -global isa-debugcon.iobase=0xe9 -no-reboot
           status=$?

@@ -353,7 +353,7 @@ impl Ui {
         self.write("DISPLAY              FRAMEBUFFER ONLINE\n");
         self.write("INPUT                FIRMWARE / PS2\n");
         self.write("PLATFORM             AMD64 UEFI + BIOS\n");
-        self.write("NETWORK              E1000 (BIOS KERNEL)\n\n> ");
+        self.write("NETWORK              E1000 / VIRTIO / UEFI SNP\n\n> ");
     }
 
     pub fn open_installer(&mut self) {

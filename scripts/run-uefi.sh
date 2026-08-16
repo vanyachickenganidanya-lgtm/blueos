@@ -30,4 +30,6 @@ exec qemu-system-x86_64 \
   -drive if=pflash,format=raw,file=build/uefi/OVMF_VARS.fd \
   -drive format=raw,file="$image",if=ide,index=0 \
   -device VGA \
+  -netdev user,id=blueosnet \
+  -device e1000,netdev=blueosnet,mac=52:54:00:12:34:56 \
   -serial stdio -no-reboot
