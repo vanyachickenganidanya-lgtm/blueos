@@ -69,7 +69,11 @@ impl FirmwareNic {
             return None;
         }
         let mut mac = [0u8; 6];
-        mac.copy_from_slice(&(*mode).current_address.address[..6]);
+        core::ptr::copy_nonoverlapping(
+            core::ptr::addr_of!((*mode).current_address.address).cast::<u8>(),
+            mac.as_mut_ptr(),
+            mac.len(),
+        );
         if mac == [0; 6] {
             return None;
         }
