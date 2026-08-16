@@ -1,0 +1,23 @@
+[package]
+name = "blueos"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+description = "A small dual-architecture Rust and assembly operating system"
+
+[[bin]]
+name = "blueos"
+path = "src/main.rs"
+test = false
+bench = false
+
+[profile.dev]
+panic = "abort"
+opt-level = 1
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = "debuginfo"
