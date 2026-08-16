@@ -7,6 +7,7 @@ use crate::{
     shell::{FeedResult, Shell},
 };
 
+#[path = "riscv64/virtio.rs"]
 mod virtio;
 use virtio::{VirtioGpu, VirtioNet};
 
